@@ -16,8 +16,6 @@ namespace Microsoft.TemplateEngine.Abstractions
 
         void AddProbingPath(string probeIn);
 
-        void GetTemplates(HashSet<ITemplateInfo> templates);
-
         ITemplate LoadTemplate(ITemplateInfo info);
 
         void Save();
@@ -28,7 +26,13 @@ namespace Microsoft.TemplateEngine.Abstractions
 
         bool TryGetMountPointInfo(Guid mountPointId, out MountPointInfo info);
 
-        void WriteTemplateCache(IList<ITemplateInfo> templates, string locale, bool isCurrentCache);
+        bool TryReadTemplateCacheFile(string locale, out string cacheFileContent);
+
+        void WriteTemplateCacheFile(string locale, string content);
+
+        void DeleteTemplateCacheForLocale(string locale);
+
+        IReadOnlyList<string> LocalesWithTemplateCacheFiles { get; }
 
         IFile HostTemplateConfigFile(IFileSystemInfo config);
     }

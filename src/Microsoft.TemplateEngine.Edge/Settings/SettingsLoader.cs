@@ -16,12 +16,12 @@ namespace Microsoft.TemplateEngine.Edge.Settings
         public static readonly string HostTemplateFileConfigBaseName = ".host.json";
 
         private SettingsStore _userSettings;
-        private TemplateCache _userTemplateCache;
+        //private TemplateCache _userTemplateCache;
         private IMountPointManager _mountPointManager;
         private IComponentManager _componentManager;
         private bool _isLoaded;
         private Dictionary<Guid, MountPointInfo> _mountPoints;
-        private bool _templatesLoaded;
+        //private bool _templatesLoaded;
         private readonly Paths _paths;
         private readonly IEngineEnvironmentSettings _environmentSettings;
 
@@ -55,7 +55,7 @@ namespace Microsoft.TemplateEngine.Edge.Settings
                     }
                     catch (IOException)
                     {
-                        if(i == MaxLoadAttempts - 1)
+                        if (i == MaxLoadAttempts - 1)
                         {
                             throw;
                         }
@@ -80,9 +80,6 @@ namespace Microsoft.TemplateEngine.Edge.Settings
             using (Timing.Over("Init Mount Point manager"))
                 _mountPointManager = new MountPointManager(_environmentSettings, _componentManager);
 
-            using (Timing.Over("Demand template load"))
-                EnsureTemplatesLoaded();
-
             _mountPoints = new Dictionary<Guid, MountPointInfo>();
 
             using (Timing.Over("Load mount points"))
@@ -91,59 +88,71 @@ namespace Microsoft.TemplateEngine.Edge.Settings
                     _mountPoints[info.MountPointId] = info;
                 }
 
+            //_userTemplateCache = new TemplateCache(_environmentSettings);
+
             _isLoaded = true;
         }
 
-        // Loads from the template cache
-        private void EnsureTemplatesLoaded()
+        public bool TryReadTemplateCacheFile(string locale, out string cacheFileContent)
         {
-            if (_templatesLoaded)
+            string cacheFilename = _paths.User.ExplicitLocaleTemplateCacheFile(locale);
+
+            if (_paths.Exists(cacheFilename))
             {
-                return;
+                cacheFileContent = _paths.ReadAllText(cacheFilename, TemplateCache.DefaultEmptyCacheFileContent);
+                return true;
             }
 
-            string userTemplateCache;
+            cacheFileContent = TemplateCache.DefaultEmptyCacheFileContent;
+            return false;
+        }
 
-            if (_paths.Exists(_paths.User.CurrentLocaleTemplateCacheFile))
+        public void WriteTemplateCacheFile(string locale, string content)
+        {
+            string cacheFilename = _paths.User.ExplicitLocaleTemplateCacheFile(locale);
+            _paths.WriteAllText(cacheFilename, content);
+
+            // TODO: decide if there are any cases where this could be incorrect.
+            // Doesn't matter right now anyway, can't get the cache exposed in the ISettingsLoader interface without moving more stuff around.
+            //
+            //if (string.Equals(locale, _environmentSettings.Host.Locale, StringComparison.OrdinalIgnoreCase))
+            //{
+            //    _userTemplateCache = new TemplateCache(_environmentSettings);
+            //}
+        }
+
+        public void DeleteTemplateCacheForLocale(string locale)
+        {
+            _paths.Delete(_paths.User.CultureNeutralTemplateCacheFile);
+        }
+
+        public IReadOnlyList<string> LocalesWithTemplateCacheFiles
+        {
+            get
             {
-                using (Timing.Over("Read template cache"))
-                    userTemplateCache = _paths.ReadAllText(_paths.User.CurrentLocaleTemplateCacheFile, "{}");
-            }
-            else if (_paths.Exists(_paths.User.CultureNeutralTemplateCacheFile))
-            {
-                // clone the culture neutral cache
-                // this should not occur if there are any langpacks installed for this culture.
-                // when they got installed, the cache should have been created for that locale.
-                using (Timing.Over("Clone cultural neutral cache"))
+                List<string> locales = new List<string>();
+                string fileSearchPattern = "*." + _paths.User.TemplateCacheFileBaseName;
+
+                foreach (string fullFilename in _paths.EnumerateFiles(_paths.User.BaseDir, fileSearchPattern, SearchOption.TopDirectoryOnly))
                 {
-                    userTemplateCache = _paths.ReadAllText(_paths.User.CultureNeutralTemplateCacheFile, "{}");
-                    _paths.WriteAllText(_paths.User.CurrentLocaleTemplateCacheFile, userTemplateCache);
+                    string filename = Path.GetFileName(fullFilename);
+                    string[] fileParts = filename.Split(new char[] { '.' }, 2);
+                    string fileLocale = fileParts[0];
+
+                    if (!string.IsNullOrEmpty(fileLocale) && (fileParts[1] == _paths.User.TemplateCacheFileBaseName))
+                    {
+                        locales.Add(fileLocale);
+                    }
                 }
-            }
-            else
-            {
-                userTemplateCache = "{}";
-            }
 
-            JObject parsed;
-            using (Timing.Over("Parse template cache"))
-                parsed = JObject.Parse(userTemplateCache);
-            using (Timing.Over("Init template cache"))
-                _userTemplateCache = new TemplateCache(_environmentSettings, parsed);
-
-            _templatesLoaded = true;
+                return locales;
+            }
         }
 
         public void Reload()
         {
             _isLoaded = false;
             EnsureLoaded();
-        }
-
-        private void UpdateTemplateListFromCache(TemplateCache cache, ISet<ITemplateInfo> templates)
-        {
-            using (Timing.Over("Enumerate infos"))
-                templates.UnionWith(cache.TemplateInfo);
         }
 
         public ITemplate LoadTemplate(ITemplateInfo info)
@@ -236,27 +245,6 @@ namespace Microsoft.TemplateEngine.Edge.Settings
         }
 
         public IEngineEnvironmentSettings EnvironmentSettings => _environmentSettings;
-
-        public void GetTemplates(HashSet<ITemplateInfo> templates)
-        {
-            using (Timing.Over("Settings init"))
-                EnsureLoaded();
-            using (Timing.Over("Template load"))
-                UpdateTemplateListFromCache(_userTemplateCache, templates);
-        }
-
-        public void WriteTemplateCache(IList<ITemplateInfo> templates, string locale, bool isCurrentCache)
-        {
-            TemplateCache cache = new TemplateCache(_environmentSettings);
-            cache.TemplateInfo.AddRange(templates.Cast<TemplateInfo>());
-            JObject serialized = JObject.FromObject(cache);
-            _paths.WriteAllText(_paths.User.ExplicitLocaleTemplateCacheFile(locale), serialized.ToString());
-
-            if (isCurrentCache)
-            {
-                _userTemplateCache = cache;
-            }
-        }
 
         public void AddProbingPath(string probeIn)
         {

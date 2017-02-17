@@ -15,19 +15,20 @@ namespace Microsoft.TemplateEngine.Cli
     {
         private readonly IEngineEnvironmentSettings _environmentSettings;
         private readonly Paths _paths;
-        private readonly TemplateCache _templateCache;
+        //private readonly TemplateCache _templateCache;
 
         public Installer(IEngineEnvironmentSettings environmentSettings)
         {
             _environmentSettings = environmentSettings;
             _paths = new Paths(environmentSettings);
-            _templateCache = new TemplateCache(_environmentSettings);
+            //_templateCache = new TemplateCache(_environmentSettings);
         }
 
         public void InstallPackages(IEnumerable<string> installationRequests)
         {
             List<string> localSources = new List<string>();
             List<Package> packages = new List<Package>();
+            ScannedTemplateInfo scannedTemplateInfo = new ScannedTemplateInfo();
 
             foreach (string request in installationRequests)
             {
@@ -43,16 +44,18 @@ namespace Microsoft.TemplateEngine.Cli
 
             if (localSources.Count > 0)
             {
-                InstallLocalPackages(localSources);
+                InstallLocalPackages(localSources, scannedTemplateInfo);
             }
 
             if (packages.Count > 0)
             {
-                InstallRemotePackages(packages);
+                InstallRemotePackages(packages, scannedTemplateInfo);
             }
+
+            new TemplateCacheManager(_environmentSettings).WriteTemplateCaches(scannedTemplateInfo);
         }
 
-        private void InstallRemotePackages(List<Package> packages)
+        private void InstallRemotePackages(List<Package> packages, ScannedTemplateInfo scannedTemplateInfo)
         {
             const string packageRef = @"    <PackageReference Include=""{0}"" Version=""{1}"" />";
             const string projectFile = @"<Project ToolsVersion=""15.0"" Sdk=""Microsoft.NET.Sdk"">
@@ -90,12 +93,13 @@ namespace Microsoft.TemplateEngine.Cli
             }
 
             _paths.DeleteDirectory(_paths.User.ScratchDir);
-            InstallLocalPackages(newLocalPackages);
+            InstallLocalPackages(newLocalPackages, scannedTemplateInfo);
         }
 
-        private void InstallLocalPackages(IReadOnlyList<string> packageNames)
+        private void InstallLocalPackages(IReadOnlyList<string> packageNames, ScannedTemplateInfo scannedTemplateInfo)
         {
             List<string> toInstall = new List<string>();
+            Scanner scanner = new Scanner(_environmentSettings);
 
             foreach (string package in packageNames)
             {
@@ -123,12 +127,12 @@ namespace Microsoft.TemplateEngine.Cli
                     {
                         string fullDirectory = new DirectoryInfo(pkg).FullName;
                         string fullPathGlob = Path.Combine(fullDirectory, pattern);
-                        _templateCache.Scan(fullPathGlob);
+                        scanner.Scan(fullPathGlob, scannedTemplateInfo);
                     }
                     else if (_environmentSettings.Host.FileSystem.DirectoryExists(pkg) || _environmentSettings.Host.FileSystem.FileExists(pkg))
                     {
                         string packageLocation = new DirectoryInfo(pkg).FullName;
-                        _templateCache.Scan(packageLocation);
+                        scanner.Scan(packageLocation, scannedTemplateInfo);
                     }
                     else
                     {
@@ -140,8 +144,6 @@ namespace Microsoft.TemplateEngine.Cli
                     _environmentSettings.Host.OnNonCriticalError("InvalidPackageSpecification", string.Format(LocalizableStrings.BadPackageSpec, pkg), null, 0);
                 }
             }
-
-            _templateCache.WriteTemplateCaches();
         }
     }
 }

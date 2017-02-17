@@ -244,6 +244,11 @@ namespace Microsoft.TemplateEngine.Cli
         {
             _onFirstRun?.Invoke(EnvironmentSettings, Installer);
 
+            if (_onFirstRun != null)
+            {
+                _templateCache.Reload();
+            }
+
             foreach (Type type in typeof(New3Command).GetTypeInfo().Assembly.GetTypes())
             {
                 EnvironmentSettings.SettingsLoader.Components.Register(type);
@@ -460,6 +465,9 @@ namespace Microsoft.TemplateEngine.Cli
             Installer.InstallPackages(Install.ToList());
             //TODO: When an installer that directly calls into NuGet is available,
             //  return a more accurate representation of the outcome of the operation
+
+            _templateCache.Reload();
+
             return Task.FromResult(CreationResultStatus.Success);
         }
 
@@ -659,6 +667,7 @@ namespace Microsoft.TemplateEngine.Cli
                 }
 
                 EnvironmentSettings.Host.UpdateLocale(newLocale);
+                _templateCache.Reload();
             }
         }
 
@@ -720,7 +729,7 @@ namespace Microsoft.TemplateEngine.Cli
             {
                 _paths.Delete(_paths.User.AliasesFile);
                 _paths.Delete(_paths.User.SettingsFile);
-                _templateCache.DeleteAllLocaleCacheFiles();
+                new TemplateCacheManager(EnvironmentSettings).DeleteAllLocaleCacheFiles();
                 return false;
             }
 
