@@ -51,7 +51,7 @@ namespace Microsoft.TemplateEngine.Edge.Settings
         // except that the template list to act on is passed in.
         public IReadOnlyCollection<IFilteredTemplateInfo> List(bool exactMatchesOnly, params Func<ITemplateInfo, MatchInfo?>[] filters)
         {
-            return TemplateListFilter.FilterTemplates(TemplateInfo, exactMatchesOnly, filters);
+            return TemplateListFilter.FilterTemplates(TemplateInfo, TemplateListFilter.ExactMatchFilter, filters);
         }
 
         public void Scan(IReadOnlyList<string> templateRoots)

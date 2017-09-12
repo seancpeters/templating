@@ -17,8 +17,7 @@ namespace Microsoft.TemplateEngine.Cli
         private static readonly IReadOnlyCollection<MatchLocation> NameFields = new HashSet<MatchLocation>
         {
             MatchLocation.Name,
-            MatchLocation.ShortName,
-            MatchLocation.Alias
+            MatchLocation.ShortName
         };
 
         public static void ParseTemplateArgs(ITemplateInfo templateInfo, IHostSpecificDataLoader hostDataLoader, INewCommandInput commandInput)
@@ -101,7 +100,7 @@ namespace Microsoft.TemplateEngine.Cli
             IReadOnlyCollection<IFilteredTemplateInfo> templates = TemplateListFilter.FilterTemplates
             (
                 templateInfo,
-                false,
+                TemplateListFilter.PartialMatchFilter,
                 WellKnownSearchFilters.NameFilter(string.Empty)
             )
             .Where(x => !IsTemplateHiddenByHostFile(x.Info, hostDataLoader)).ToList();
@@ -112,10 +111,13 @@ namespace Microsoft.TemplateEngine.Cli
         // Lists all the templates, filtered only by the context (item, project, etc) - and the host file.
         public static IReadOnlyCollection<IFilteredTemplateInfo> PerformAllTemplatesInContextQuery(IReadOnlyList<ITemplateInfo> templateInfo, IHostSpecificDataLoader hostDataLoader, string context)
         {
+            // If there is a context match, it must be exact. Other dispositions are irrelevant.
+            Func<IFilteredTemplateInfo, bool> contextFilter = x => x.MatchDisposition.All(d => d.Location != MatchLocation.Context || d.Kind == MatchKind.Exact);
+
             IReadOnlyCollection<IFilteredTemplateInfo> templates = TemplateListFilter.FilterTemplates
             (
                 templateInfo,
-                false,
+                contextFilter,
                 WellKnownSearchFilters.ContextFilter(context),
                 WellKnownSearchFilters.NameFilter(string.Empty)
             )
@@ -124,55 +126,54 @@ namespace Microsoft.TemplateEngine.Cli
             return templates;
         }
 
+        public static TemplateListResolutionResult GetTemplateResolutionResult(IReadOnlyList<ITemplateInfo> templateInfo, IHostSpecificDataLoader hostDataLoader, INewCommandInput commandInput, string defaultLanguage)
+        {
+            IReadOnlyCollection<IFilteredTemplateInfo> coreMatchedTemplates = PerformCoreTemplateQuery(templateInfo, hostDataLoader, commandInput, defaultLanguage);
+            IReadOnlyCollection<IFilteredTemplateInfo> allTemplatesInContext = PerformAllTemplatesInContextQuery(templateInfo, hostDataLoader, commandInput.TypeFilter);
+            return new TemplateListResolutionResult(commandInput.TemplateName, commandInput.Language, coreMatchedTemplates, allTemplatesInContext);
+        }
+
         // Query for template matches, filtered by everything available: name, language, context, parameters, and the host file.
-        public static TemplateListResolutionResult PerformCoreTemplateQuery(IReadOnlyList<ITemplateInfo> templateInfo, IHostSpecificDataLoader hostDataLoader, INewCommandInput commandInput, string defaultLanguage)
+        public static IReadOnlyCollection<IFilteredTemplateInfo> PerformCoreTemplateQuery(IReadOnlyList<ITemplateInfo> templateInfo, IHostSpecificDataLoader hostDataLoader, INewCommandInput commandInput, string defaultLanguage)
         {
             IReadOnlyCollection<IFilteredTemplateInfo> templates = TemplateListFilter.FilterTemplates
             (
                 templateInfo,
-                false,
+                TemplateListFilter.PartialMatchFilter,
                 WellKnownSearchFilters.NameFilter(commandInput.TemplateName),
                 WellKnownSearchFilters.ClassificationsFilter(commandInput.TemplateName),
                 WellKnownSearchFilters.LanguageFilter(commandInput.Language),
-                WellKnownSearchFilters.ContextFilter(commandInput.TypeFilter?.ToLowerInvariant()),
+                WellKnownSearchFilters.ContextFilter(commandInput.TypeFilter),
                 WellKnownSearchFilters.BaselineFilter(commandInput.BaselineName)
             )
             .Where(x => !IsTemplateHiddenByHostFile(x.Info, hostDataLoader)).ToList();
 
             IReadOnlyList<IFilteredTemplateInfo> coreMatchedTemplates = templates.Where(x => x.IsMatch).ToList();
-            TemplateListResolutionResult matchResults;
 
             if (coreMatchedTemplates.Count == 0)
             {
                 // No exact matches, take the partial matches and be done.
-                matchResults = new TemplateListResolutionResult(!string.IsNullOrEmpty(commandInput.Language))
-                {
-                    CoreMatchedTemplates = templates.Where(x => x.IsPartialMatch).ToList()
-                };
+                return templates.Where(x => x.IsPartialMatch).ToList();
             }
             else
             {
                 IReadOnlyList<IFilteredTemplateInfo> matchesWithExactDispositionsInNameFields = coreMatchedTemplates.Where(x => x.MatchDisposition.Any(y => NameFields.Contains(y.Location) && y.Kind == MatchKind.Exact)).ToList();
                 if (matchesWithExactDispositionsInNameFields.Count > 0)
                 {
-                    // Start the exact name matches, if there are any.
+                    // Start with the exact name matches, if there are any.
                     coreMatchedTemplates = matchesWithExactDispositionsInNameFields;
                 }
 
-                matchResults = new TemplateListResolutionResult(!string.IsNullOrEmpty(commandInput.Language))
-                {
-                    CoreMatchedTemplates = coreMatchedTemplates
-                };
-
                 if (string.IsNullOrEmpty(commandInput.Language) && !string.IsNullOrEmpty(defaultLanguage))
-                {   // default language matching only makes sense if the user didn't specify a language.
-                    AddDefaultLanguageMatchingToTemplates(matchResults.CoreMatchedTemplates, defaultLanguage);
+                {
+                    // default language matching only makes sense if the user didn't specify a language.
+                    AddDefaultLanguageMatchingToTemplates(coreMatchedTemplates, defaultLanguage);
                 }
 
-                AddParameterMatchingToTemplates(matchResults.CoreMatchedTemplates, hostDataLoader, commandInput);
+                AddParameterMatchingToTemplates(coreMatchedTemplates, hostDataLoader, commandInput);
             }
 
-            return matchResults;
+            return coreMatchedTemplates;
         }
 
         private static void AddDefaultLanguageMatchingToTemplates(IReadOnlyList<IFilteredTemplateInfo> listToFilter, string language)
@@ -197,7 +198,7 @@ namespace Microsoft.TemplateEngine.Cli
                     matchKind = MatchKind.Mismatch;
                 }
 
-                template.AddDefaultDisposition(new MatchInfo
+                template.AddDisposition(new MatchInfo
                 {
                     Location = MatchLocation.DefaultLanguage,
                     Kind = matchKind
@@ -257,20 +258,22 @@ namespace Microsoft.TemplateEngine.Cli
                     foreach (string unmatchedParamName in commandInput.RemainingParameters.Keys.Where(x => !x.Contains(':')))   // filter debugging params
                     {
                         if (commandInput.TryGetCanonicalNameForVariant(unmatchedParamName, out string canonical))
-                        {   // the name is a known template param, it must have not parsed due to an invalid value
-                            //
+                        {
+                            // the name is a known template param, it must have not parsed due to an invalid value
                             // Note (scp 2017-02-27): This probably can't happen, the param parsing doesn't check the choice values.
                             template.AddDisposition(new MatchInfo { Location = MatchLocation.OtherParameter, Kind = MatchKind.InvalidParameterValue, ChoiceIfLocationIsOtherChoice = unmatchedParamName });
                         }
                         else
-                        {   // the name is not known
+                        {
+                            // the name is not known
                             // TODO: reconsider storing the canonical in this situation. It's not really a canonical since the param is unknown.
                             template.AddDisposition(new MatchInfo { Location = MatchLocation.OtherParameter, Kind = MatchKind.InvalidParameterName, ChoiceIfLocationIsOtherChoice = unmatchedParamName });
                         }
                     }
                 }
                 catch (CommandParserException ex)
-                {   // if we do actually throw, add a non-match
+                {
+                    // if we do actually throw, add a non-match
                     template.AddDisposition(new MatchInfo { Location = MatchLocation.Unspecified, Kind = MatchKind.Unspecified, AdditionalInformation = ex.Message });
                 }
             }
