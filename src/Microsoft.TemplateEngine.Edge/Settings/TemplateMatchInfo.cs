@@ -68,8 +68,6 @@ namespace Microsoft.TemplateEngine.Edge.Settings
 
         public bool IsMatch => MatchDisposition.Count > 0 && !MatchDisposition.Any(x => x.Kind == MatchKind.Mismatch);
 
-        public bool IsPartialMatch => MatchDisposition.Any(x => x.Kind != MatchKind.Mismatch)
-                                    && MatchDisposition.All(x => x.Location != MatchLocation.Context
-                                        || (x.Location == MatchLocation.Context && x.Kind == MatchKind.Exact));
+        public bool IsPartialMatch => MatchDisposition.Any(x => x.Kind != MatchKind.Mismatch);
     }
 }
