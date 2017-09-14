@@ -148,9 +148,9 @@ namespace Microsoft.TemplateEngine.Cli
 
         // Attempts to invoke the template.
         // Warning: The _commandInput cannot be assumed to be in a state that is parsed for the template being invoked.
-        //      So be sure to only get template-agnostic information from it. Anything specific to the template must be gotten from the IFilteredTemplateInfo
+        //      So be sure to only get template-agnostic information from it. Anything specific to the template must be gotten from the ITemplateMatchInfo
         //      Or do a reparse if necessary (currently occurs in one error case).
-        private async Task<CreationResultStatus> CreateTemplateAsync(IFilteredTemplateInfo templateMatchDetails)
+        private async Task<CreationResultStatus> CreateTemplateAsync(ITemplateMatchInfo templateMatchDetails)
         {
             ITemplateInfo template = templateMatchDetails.Info;
 
@@ -165,7 +165,7 @@ namespace Microsoft.TemplateEngine.Cli
 
             try
             {
-                instantiateResult = await _templateCreator.InstantiateAsync(template, _commandInput.Name, fallbackName, _commandInput.OutputPath, templateMatchDetails.ValidTemplateParameters, _commandInput.SkipUpdateCheck, _commandInput.IsForceFlagSpecified, _commandInput.BaselineName).ConfigureAwait(false);
+                instantiateResult = await _templateCreator.InstantiateAsync(template, _commandInput.Name, fallbackName, _commandInput.OutputPath, templateMatchDetails.GetValidTemplateParameters(), _commandInput.SkipUpdateCheck, _commandInput.IsForceFlagSpecified, _commandInput.BaselineName).ConfigureAwait(false);
             }
             catch (ContentGenerationException cx)
             {
@@ -208,7 +208,7 @@ namespace Microsoft.TemplateEngine.Cli
                     else
                     {
                         // TODO: rework to avoid having to reparse.
-                        // The canonical info could be in the IFilteredTemplateInfo, but currently isn't.
+                        // The canonical info could be in the ITemplateMatchInfo, but currently isn't.
                         TemplateListResolver.ParseTemplateArgs(template, _hostDataLoader, _commandInput);
 
                         IReadOnlyList<string> missingParamNamesCanonical = instantiateResult.Message.Split(new[] { ',' })
@@ -331,19 +331,19 @@ namespace Microsoft.TemplateEngine.Cli
             return CreationResultStatus.Success;
         }
 
-        private bool CheckForArgsError(IFilteredTemplateInfo template, out string commandParseFailureMessage)
+        private bool CheckForArgsError(ITemplateMatchInfo template, out string commandParseFailureMessage)
         {
             bool argsError;
 
-            if (template.HasParseError)
+            if (template.HasParseError())
             {
-                commandParseFailureMessage = template.ParseError;
+                commandParseFailureMessage = template.GetParseError();
                 argsError = true;
             }
             else
             {
                 commandParseFailureMessage = null;
-                IReadOnlyList<string> invalidParams = template.InvalidParameterNames;
+                IReadOnlyList<string> invalidParams = template.GetInvalidParameterNames();
 
                 if (invalidParams.Count > 0)
                 {
@@ -359,7 +359,7 @@ namespace Microsoft.TemplateEngine.Cli
             return argsError;
         }
 
-        private async Task<CreationResultStatus> EnterTemplateInvocationFlowAsync(IFilteredTemplateInfo templateToInvoke)
+        private async Task<CreationResultStatus> EnterTemplateInvocationFlowAsync(ITemplateMatchInfo templateToInvoke)
         {
             templateToInvoke.Info.Tags.TryGetValue("language", out ICacheTag language);
             _commandInput.InputTemplateParams.TryGetValue("framework", out string framework);
@@ -442,10 +442,10 @@ namespace Microsoft.TemplateEngine.Cli
                 return HelpForTemplateResolution.CoordinateHelpAndUsageDisplay(templateResolutionResult, EnvironmentSettings, _commandInput, _hostDataLoader, _telemetryLogger, _templateCreator, _defaultLanguage);
             }
 
-            if (templateResolutionResult.TryGetUnambiguousTemplateGroupToUse(out IReadOnlyList<IFilteredTemplateInfo> unambiguousTemplateGroup)
-                && templateResolutionResult.TryGetSingularInvokableMatch(out IFilteredTemplateInfo templateToInvoke)
-                && !unambiguousTemplateGroup.Any(x => x.HasParameterMismatch)
-                && !unambiguousTemplateGroup.Any(x => x.HasAmbiguousParameterValueMatch))
+            if (templateResolutionResult.TryGetUnambiguousTemplateGroupToUse(out IReadOnlyList<ITemplateMatchInfo> unambiguousTemplateGroup)
+                && templateResolutionResult.TryGetSingularInvokableMatch(out ITemplateMatchInfo templateToInvoke)
+                && !unambiguousTemplateGroup.Any(x => x.HasParameterMismatch())
+                && !unambiguousTemplateGroup.Any(x => x.HasAmbiguousParameterValueMatch()))
             {
                 // If any template in the group has any ambiguous params, then don't invoke.
                 // The check for HasAmbiguousParameterValueMatch is for an example like:
@@ -596,7 +596,7 @@ namespace Microsoft.TemplateEngine.Cli
         {
             get
             {
-                IReadOnlyCollection<IFilteredTemplateInfo> allTemplates = TemplateListResolver.PerformAllTemplatesQuery(_settingsLoader.UserTemplateCache.TemplateInfo, _hostDataLoader);
+                IReadOnlyCollection<ITemplateMatchInfo> allTemplates = TemplateListResolver.PerformAllTemplatesQuery(_settingsLoader.UserTemplateCache.TemplateInfo, _hostDataLoader);
                 HashSet<string> allShortNames = new HashSet<string>(allTemplates.Select(x => x.Info.ShortName));
                 return allShortNames;
             }
