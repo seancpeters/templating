@@ -493,7 +493,7 @@ namespace Microsoft.TemplateEngine.Orchestrator.RunnableProjects
                     return null;
                 }
 
-                if (literal.Contains(".") && double.TryParse(literal, out double literalDouble))
+                if (literal.Contains(CultureInfo.CurrentCulture.NumberFormat.NumberDecimalSeparator) && double.TryParse(literal, out double literalDouble))
                 {
                     return literalDouble;
                 }

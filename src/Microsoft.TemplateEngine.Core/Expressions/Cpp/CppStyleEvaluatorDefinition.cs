@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -555,7 +555,7 @@ namespace Microsoft.TemplateEngine.Core.Expressions.Cpp
                 }
 
                 double literalDouble;
-                if (literal.Contains(".") && double.TryParse(literal, out literalDouble))
+                if (literal.Contains(CultureInfo.CurrentCulture.NumberFormat.NumberDecimalSeparator) && double.TryParse(literal, out literalDouble))
                 {
                     return literalDouble;
                 }
