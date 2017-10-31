@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using Microsoft.TemplateEngine.Abstractions;
 
@@ -28,8 +28,12 @@ namespace Microsoft.TemplateEngine.Cli.PostActionProcessors
             {
                 string pathToRestore = !string.IsNullOrEmpty(outputBasePath) ? Path.Combine(outputBasePath, output.Path) : output.Path;
 
-                if (string.IsNullOrEmpty(pathToRestore) || (!Directory.Exists(pathToRestore) && !Path.GetExtension(pathToRestore).EndsWith("proj", StringComparison.OrdinalIgnoreCase)))
-                {
+                if (string.IsNullOrEmpty(pathToRestore) ||
+                    (!Directory.Exists(pathToRestore)
+                        && !Path.GetExtension(pathToRestore).EndsWith("proj", StringComparison.OrdinalIgnoreCase)
+                        && !Path.GetExtension(pathToRestore).Equals(".sln", StringComparison.OrdinalIgnoreCase)
+                    ))
+                {       
                     continue;
                 }
 
