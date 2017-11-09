@@ -54,221 +54,271 @@ namespace Microsoft.TemplateEngine.Edge.Settings
             return TemplateListFilter.FilterTemplates(TemplateInfo, exactMatchesOnly, filters);
         }
 
-        public void Scan(IReadOnlyList<string> templateRoots)
+        private Scanner Scanner
         {
-            foreach (string templateDir in templateRoots)
+            get
             {
-                Scan(templateDir);
+                if (_scanner == null)
+                {
+                    _scanner = new Scanner(_environmentSettings);
+                }
+
+                return _scanner;
+            }
+        }
+        private Scanner _scanner;
+
+        private void AddTemplatesAndLangPacksFromScanResult(ScanResult scanResult)
+        {
+            foreach (ILocalizationLocator locator in scanResult.Localizations)
+            {
+                AddLocalizationToMemoryCache(locator);
+            }
+
+            foreach (ITemplate template in scanResult.Templates)
+            {
+                AddTemplateToMemoryCache(template);
             }
         }
 
-        public void Scan(string templateDir)
+        public void Scan(IReadOnlyList<string> installDirList)
         {
-            Scan(templateDir, out IReadOnlyList<Guid> mountPointIds);
+            foreach (string installRoot in installDirList)
+            {
+                ScanResult scanResult = Scanner.Scan(installRoot);
+                AddTemplatesAndLangPacksFromScanResult(scanResult);
+            }
         }
 
-        public void Scan(string templateDir, out IReadOnlyList<Guid> mountPointIds)
+        public void Scan(string installDir)
         {
-            if (templateDir[templateDir.Length - 1] == '/' || templateDir[templateDir.Length - 1] == '\\')
-            {
-                templateDir = templateDir.Substring(0, templateDir.Length - 1);
-            }
-
-            string searchTarget = Path.Combine(_environmentSettings.Host.FileSystem.GetCurrentDirectory(), templateDir.Trim());
-
-            List<string> matches = _environmentSettings.Host.FileSystem.EnumerateFileSystemEntries(Path.GetDirectoryName(searchTarget), Path.GetFileName(searchTarget), SearchOption.TopDirectoryOnly).ToList();
-
-            if (matches.Count == 1)
-            {
-                templateDir = matches[0];
-            }
-            else
-            {
-                List<Guid> storageLocations = new List<Guid>();
-
-                foreach(string match in matches)
-                {
-                    Scan(match, out IReadOnlyList<Guid> locationsForThisContent);
-                    storageLocations.AddRange(locationsForThisContent);
-                }
-
-                mountPointIds = storageLocations;
-                return;
-            }
-
-            if (_environmentSettings.SettingsLoader.TryGetMountPointFromPlace(templateDir, out IMountPoint existingMountPoint))
-            {
-                ScanMountPointForTemplatesAndLangpacks(existingMountPoint, templateDir);
-                mountPointIds = new Guid[]
-                {
-                    existingMountPoint.Info.MountPointId
-                };
-                _environmentSettings.SettingsLoader.ReleaseMountPoint(existingMountPoint);
-                return;
-            }
-            else
-            {
-                foreach (IMountPointFactory factory in _environmentSettings.SettingsLoader.Components.OfType<IMountPointFactory>().ToList())
-                {
-                    if (factory.TryMount(_environmentSettings, null, templateDir, out IMountPoint mountPoint))
-                    {
-                        //Force any local package installs into the content directory
-                        if(!(mountPoint is FileSystemMountPoint))
-                        {
-                            string path = Path.Combine(_paths.User.Packages, Path.GetFileName(templateDir));
-
-                            if (!string.Equals(path, templateDir))
-                            {
-                                _paths.CreateDirectory(_paths.User.Packages);
-                                _paths.Copy(templateDir, path);
-
-                                var attributes = _environmentSettings.Host.FileSystem.GetFileAttributes(path);
-                                if (attributes.HasFlag(FileAttributes.ReadOnly))
-                                {
-                                    attributes &= ~FileAttributes.ReadOnly;
-                                    _environmentSettings.Host.FileSystem.SetFileAttributes(path, attributes);
-                                }
-
-                                if (_environmentSettings.SettingsLoader.TryGetMountPointFromPlace(path, out IMountPoint mountPoint2) || factory.TryMount(_environmentSettings, null, path, out mountPoint2))
-                                {
-                                    _environmentSettings.SettingsLoader.ReleaseMountPoint(mountPoint);
-                                    mountPoint = mountPoint2;
-                                    templateDir = path;
-                                }
-                            }
-                        }
-
-                        // TODO: consider not adding the mount point if there is nothing to install.
-                        // It'd require choosing to not write it upstream from here, which might be better anyway.
-                        // "nothing to install" could have a couple different meanings:
-                        // 1) no templates, and no langpacks were found.
-                        // 2) only langpacks were found, but they aren't for any existing templates - but we won't know that at this point.
-                        _environmentSettings.SettingsLoader.AddMountPoint(mountPoint);
-                        if(!ScanMountPointForTemplatesAndLangpacks(mountPoint, templateDir))
-                        {
-                            _environmentSettings.SettingsLoader.RemoveMountPoint(mountPoint);
-
-                            if (mountPoint.Info.Place.StartsWith(_paths.User.Packages, StringComparison.Ordinal))
-                            {
-                                try
-                                {
-                                    _environmentSettings.Host.FileSystem.FileDelete(mountPoint.Info.Place);
-                                }
-                                catch
-                                {
-                                }
-                            }
-                        }
-
-                        mountPointIds = new Guid[]
-                        {
-                            mountPoint.Info.MountPointId
-                        };
-
-                        _environmentSettings.SettingsLoader.ReleaseMountPoint(mountPoint);
-                        return;
-                    }
-                }
-            }
-
-            mountPointIds = new Guid[] { };
+            ScanResult scanResult = Scanner.Scan(installDir);
+            AddTemplatesAndLangPacksFromScanResult(scanResult);
         }
 
-        private bool ScanMountPointForTemplatesAndLangpacks(IMountPoint mountPoint, string templateDir)
+        public void Scan(string installDir, out IReadOnlyList<Guid> mountPointIds)
         {
-            bool anythingFound = ScanForComponents(mountPoint, templateDir);
-            foreach (IGenerator generator in _environmentSettings.SettingsLoader.Components.OfType<IGenerator>())
-            {
-                IList<ITemplate> templateList = generator.GetTemplatesAndLangpacksFromDir(mountPoint, out IList<ILocalizationLocator> localizationInfo);
+            ScanResult scanResult = Scanner.Scan(installDir);
+            AddTemplatesAndLangPacksFromScanResult(scanResult);
 
-                foreach (ILocalizationLocator locator in localizationInfo)
-                {
-                    AddLocalizationToMemoryCache(locator);
-                }
-
-                foreach (ITemplate template in templateList)
-                {
-                    AddTemplateToMemoryCache(template);
-                }
-
-                anythingFound |= templateList.Count > 0 || localizationInfo.Count > 0;
-            }
-
-            return anythingFound;
+            mountPointIds = scanResult.InstalledMountPointIds;
         }
 
-        private bool ScanForComponents(IMountPoint mountPoint, string templateDir)
-        {
-            bool anythingFound = false;
-            bool isInOriginalInstallLocation = true;
-            if (mountPoint.Root.EnumerateFiles("*.dll", SearchOption.AllDirectories).Any())
-            {
-                string diskPath = templateDir;
-                if (mountPoint.Info.MountPointFactoryId != FileSystemMountPointFactory.FactoryId)
-                {
-                    string path = Path.Combine(_paths.User.Content, Path.GetFileName(templateDir));
+        //public void Scan(IReadOnlyList<string> templateRoots)
+        //{
+        //    foreach (string templateDir in templateRoots)
+        //    {
+        //        Scan(templateDir);
+        //    }
+        //}
 
-                    if (templateDir.EndsWith(".symbols.nupkg", StringComparison.OrdinalIgnoreCase))
-                    {
-                        return false;
-                    }
+        //public void Scan(string templateDir)
+        //{
+        //    Scan(templateDir, out IReadOnlyList<Guid> mountPointIds);
+        //}
 
-                    try
-                    {
-                        isInOriginalInstallLocation = false;
-                        mountPoint.Root.CopyTo(path);
-                    }
-                    catch (IOException)
-                    {
-                        return false;
-                    }
+        //public void Scan(string templateDir, out IReadOnlyList<Guid> mountPointIds)
+        //{
+        //    if (templateDir[templateDir.Length - 1] == '/' || templateDir[templateDir.Length - 1] == '\\')
+        //    {
+        //        templateDir = templateDir.Substring(0, templateDir.Length - 1);
+        //    }
 
-                    try
-                    {
-                        if (mountPoint.Info.Place.StartsWith(_paths.User.Packages))
-                        {
-                            _environmentSettings.Host.FileSystem.FileDelete(mountPoint.Info.Place);
-                        }
-                    }
-                    catch
-                    {
-                    }
+        //    string searchTarget = Path.Combine(_environmentSettings.Host.FileSystem.GetCurrentDirectory(), templateDir.Trim());
 
-                    diskPath = path;
-                }
+        //    List<string> matches = _environmentSettings.Host.FileSystem.EnumerateFileSystemEntries(Path.GetDirectoryName(searchTarget), Path.GetFileName(searchTarget), SearchOption.TopDirectoryOnly).ToList();
 
-                foreach (KeyValuePair<string, Assembly> asm in AssemblyLoader.LoadAllAssemblies(_paths, out IEnumerable<string> failures))
-                {
-                    try
-                    {
-                        IReadOnlyList<Type> typeList = asm.Value.GetTypes();
+        //    if (matches.Count == 1)
+        //    {
+        //        templateDir = matches[0];
+        //    }
+        //    else
+        //    {
+        //        List<Guid> storageLocations = new List<Guid>();
 
-                        if (typeList.Count > 0)
-                        {
-                            _environmentSettings.SettingsLoader.Components.RegisterMany(typeList);
-                            _environmentSettings.SettingsLoader.AddProbingPath(Path.GetDirectoryName(asm.Key));
-                            anythingFound = true;
-                        }
-                    }
-                    catch
-                    {
-                    }
-                }
+        //        foreach (string match in matches)
+        //        {
+        //            Scan(match, out IReadOnlyList<Guid> locationsForThisContent);
+        //            storageLocations.AddRange(locationsForThisContent);
+        //        }
 
-                if (!anythingFound && !isInOriginalInstallLocation)
-                {
-                    try
-                    {
-                        _environmentSettings.Host.FileSystem.DirectoryDelete(diskPath, true);
-                    }
-                    catch
-                    {
-                    }
-                }
-            }
+        //        mountPointIds = storageLocations;
+        //        return;
+        //    }
 
-            return isInOriginalInstallLocation && anythingFound;
-        }
+        //    if (_environmentSettings.SettingsLoader.TryGetMountPointFromPlace(templateDir, out IMountPoint existingMountPoint))
+        //    {
+        //        ScanMountPointForTemplatesAndLangpacks(existingMountPoint, templateDir);
+        //        mountPointIds = new Guid[]
+        //        {
+        //            existingMountPoint.Info.MountPointId
+        //        };
+        //        _environmentSettings.SettingsLoader.ReleaseMountPoint(existingMountPoint);
+        //        return;
+        //    }
+        //    else
+        //    {
+        //        foreach (IMountPointFactory factory in _environmentSettings.SettingsLoader.Components.OfType<IMountPointFactory>().ToList())
+        //        {
+        //            if (factory.TryMount(_environmentSettings, null, templateDir, out IMountPoint mountPoint))
+        //            {
+        //                //Force any local package installs into the content directory
+        //                if (!(mountPoint is FileSystemMountPoint))
+        //                {
+        //                    string path = Path.Combine(_paths.User.Packages, Path.GetFileName(templateDir));
+
+        //                    if (!string.Equals(path, templateDir))
+        //                    {
+        //                        _paths.CreateDirectory(_paths.User.Packages);
+        //                        _paths.Copy(templateDir, path);
+
+        //                        var attributes = _environmentSettings.Host.FileSystem.GetFileAttributes(path);
+        //                        if (attributes.HasFlag(FileAttributes.ReadOnly))
+        //                        {
+        //                            attributes &= ~FileAttributes.ReadOnly;
+        //                            _environmentSettings.Host.FileSystem.SetFileAttributes(path, attributes);
+        //                        }
+
+        //                        if (_environmentSettings.SettingsLoader.TryGetMountPointFromPlace(path, out IMountPoint mountPoint2) || factory.TryMount(_environmentSettings, null, path, out mountPoint2))
+        //                        {
+        //                            _environmentSettings.SettingsLoader.ReleaseMountPoint(mountPoint);
+        //                            mountPoint = mountPoint2;
+        //                            templateDir = path;
+        //                        }
+        //                    }
+        //                }
+
+        //                // TODO: consider not adding the mount point if there is nothing to install.
+        //                // It'd require choosing to not write it upstream from here, which might be better anyway.
+        //                // "nothing to install" could have a couple different meanings:
+        //                // 1) no templates, and no langpacks were found.
+        //                // 2) only langpacks were found, but they aren't for any existing templates - but we won't know that at this point.
+        //                _environmentSettings.SettingsLoader.AddMountPoint(mountPoint);
+        //                if (!ScanMountPointForTemplatesAndLangpacks(mountPoint, templateDir))
+        //                {
+        //                    _environmentSettings.SettingsLoader.RemoveMountPoint(mountPoint);
+
+        //                    if (mountPoint.Info.Place.StartsWith(_paths.User.Packages, StringComparison.Ordinal))
+        //                    {
+        //                        try
+        //                        {
+        //                            _environmentSettings.Host.FileSystem.FileDelete(mountPoint.Info.Place);
+        //                        }
+        //                        catch
+        //                        {
+        //                        }
+        //                    }
+        //                }
+
+        //                mountPointIds = new Guid[]
+        //                {
+        //                    mountPoint.Info.MountPointId
+        //                };
+
+        //                _environmentSettings.SettingsLoader.ReleaseMountPoint(mountPoint);
+        //                return;
+        //            }
+        //        }
+        //    }
+
+        //    mountPointIds = new Guid[] { };
+        //}
+
+        //private bool ScanMountPointForTemplatesAndLangpacks(IMountPoint mountPoint, string templateDir)
+        //{
+        //    bool anythingFound = ScanForComponents(mountPoint, templateDir);
+        //    foreach (IGenerator generator in _environmentSettings.SettingsLoader.Components.OfType<IGenerator>())
+        //    {
+        //        IList<ITemplate> templateList = generator.GetTemplatesAndLangpacksFromDir(mountPoint, out IList<ILocalizationLocator> localizationInfo);
+
+        //        foreach (ILocalizationLocator locator in localizationInfo)
+        //        {
+        //            AddLocalizationToMemoryCache(locator);
+        //        }
+
+        //        foreach (ITemplate template in templateList)
+        //        {
+        //            AddTemplateToMemoryCache(template);
+        //        }
+
+        //        anythingFound |= templateList.Count > 0 || localizationInfo.Count > 0;
+        //    }
+
+        //    return anythingFound;
+        //}
+
+        //private bool ScanForComponents(IMountPoint mountPoint, string templateDir)
+        //{
+        //    bool anythingFound = false;
+        //    bool isInOriginalInstallLocation = true;
+        //    if (mountPoint.Root.EnumerateFiles("*.dll", SearchOption.AllDirectories).Any())
+        //    {
+        //        string diskPath = templateDir;
+        //        if (mountPoint.Info.MountPointFactoryId != FileSystemMountPointFactory.FactoryId)
+        //        {
+        //            string path = Path.Combine(_paths.User.Content, Path.GetFileName(templateDir));
+
+        //            if (templateDir.EndsWith(".symbols.nupkg", StringComparison.OrdinalIgnoreCase))
+        //            {
+        //                return false;
+        //            }
+
+        //            try
+        //            {
+        //                isInOriginalInstallLocation = false;
+        //                mountPoint.Root.CopyTo(path);
+        //            }
+        //            catch (IOException)
+        //            {
+        //                return false;
+        //            }
+
+        //            try
+        //            {
+        //                if (mountPoint.Info.Place.StartsWith(_paths.User.Packages))
+        //                {
+        //                    _environmentSettings.Host.FileSystem.FileDelete(mountPoint.Info.Place);
+        //                }
+        //            }
+        //            catch
+        //            {
+        //            }
+
+        //            diskPath = path;
+        //        }
+
+        //        foreach (KeyValuePair<string, Assembly> asm in AssemblyLoader.LoadAllAssemblies(_paths, out IEnumerable<string> failures))
+        //        {
+        //            try
+        //            {
+        //                IReadOnlyList<Type> typeList = asm.Value.GetTypes();
+
+        //                if (typeList.Count > 0)
+        //                {
+        //                    _environmentSettings.SettingsLoader.Components.RegisterMany(typeList);
+        //                    _environmentSettings.SettingsLoader.AddProbingPath(Path.GetDirectoryName(asm.Key));
+        //                    anythingFound = true;
+        //                }
+        //            }
+        //            catch
+        //            {
+        //            }
+        //        }
+
+        //        if (!anythingFound && !isInOriginalInstallLocation)
+        //        {
+        //            try
+        //            {
+        //                _environmentSettings.Host.FileSystem.DirectoryDelete(diskPath, true);
+        //            }
+        //            catch
+        //            {
+        //            }
+        //        }
+        //    }
+
+        //    return isInOriginalInstallLocation && anythingFound;
+        //}
 
         // returns a list of the templates with the specified localization.
         // does not change which locale is cached in this TemplateCache instance.
