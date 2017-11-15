@@ -322,13 +322,6 @@ namespace Microsoft.TemplateEngine.Cli
                 return CreationResultStatus.InvalidParamValues;
             }
 
-            // duplicate
-            if (_commandInput.ToInstallList != null && _commandInput.ToInstallList.Count > 0 && _commandInput.ToInstallList[0] != null)
-            {
-                bool allowDevInstall = _commandInput.HasDebuggingFlag("--dev:install");
-                Installer.InstallPackages(_commandInput.ToInstallList.Select(x => x.Split(new[] { "::" }, StringSplitOptions.None)[0]), allowDevInstall);
-            }
-
             if (_commandInput.ToUninstallList != null)
             {
                 if (_commandInput.ToUninstallList.Count > 0 && _commandInput.ToUninstallList[0] != null)
