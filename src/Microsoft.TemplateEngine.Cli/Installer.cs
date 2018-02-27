@@ -178,7 +178,7 @@ namespace Microsoft.TemplateEngine.Cli
             return uninstallFailures;
         }
 
-        private void InstallRemotePackages(List<Package> packages, IList<string> nuGetSources)
+        public static void RestorePackages(Paths paths, string restoreProjDir, string restoreProjFileName, string restorePackageDir, IList<Package> packages, IList<string> nuGetSources)
         {
             const string packageRef = @"    <PackageReference Include=""{0}"" Version=""{1}"" />";
             const string projectFile = @"<Project ToolsVersion=""15.0"" Sdk=""Microsoft.NET.Sdk"">
@@ -192,8 +192,8 @@ namespace Microsoft.TemplateEngine.Cli
   </ItemGroup>
 </Project>";
 
-            _paths.CreateDirectory(_paths.User.ScratchDir);
-            string proj = Path.Combine(_paths.User.ScratchDir, "restore.csproj");
+            paths.CreateDirectory(restoreProjDir);
+            string proj = Path.Combine(restoreProjDir, restoreProjFileName);
             StringBuilder references = new StringBuilder();
 
             foreach (Package pkg in packages)
@@ -202,16 +202,14 @@ namespace Microsoft.TemplateEngine.Cli
             }
 
             string content = string.Format(projectFile, references.ToString());
-            _paths.WriteAllText(proj, content);
-
-            string restored = Path.Combine(_paths.User.ScratchDir, "Packages");
+            paths.WriteAllText(proj, content);
 
             int additionalSlots = nuGetSources?.Count * 2 ?? 0;
 
             string[] restoreArgs = new string[3 + additionalSlots];
             restoreArgs[0] = proj;
             restoreArgs[1] = "--packages";
-            restoreArgs[2] = restored;
+            restoreArgs[2] = restorePackageDir;
 
             if (nuGetSources != null)
             {
@@ -223,11 +221,21 @@ namespace Microsoft.TemplateEngine.Cli
             }
 
             Dotnet.Restore(restoreArgs).ForwardStdOut().ForwardStdErr().Execute();
+        }
+
+        private static readonly string InstallRemotePackagesProjFileName = "restore.csproj";
+        private void InstallRemotePackages(List<Package> packages, IList<string> nuGetSources)
+        {
+            string restoreProjDir = _paths.User.ScratchDir;
+            string restorePackageDir = Path.Combine(restoreProjDir, "Packages");
+
+            RestorePackages(_paths, restoreProjDir, InstallRemotePackagesProjFileName, restorePackageDir, packages, nuGetSources);
+
             string stagingDir = Path.Combine(_paths.User.ScratchDir, "Staging");
             _paths.CreateDirectory(stagingDir);
 
             List<string> newLocalPackages = new List<string>();
-            foreach (string packagePath in _paths.EnumerateFiles(restored, "*.nupkg", SearchOption.AllDirectories))
+            foreach (string packagePath in _paths.EnumerateFiles(restorePackageDir, "*.nupkg", SearchOption.AllDirectories))
             {
                 string stagingPathForPackage = Path.Combine(stagingDir, Path.GetFileName(packagePath));
                 _paths.Copy(packagePath, stagingPathForPackage);

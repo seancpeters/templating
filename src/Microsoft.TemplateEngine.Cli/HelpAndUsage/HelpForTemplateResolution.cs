@@ -8,6 +8,7 @@ using Microsoft.TemplateEngine.Edge.Template;
 using Microsoft.TemplateEngine.Abstractions;
 using Microsoft.TemplateEngine.Cli.CommandParsing;
 using Microsoft.TemplateEngine.Utils;
+using Microsoft.TemplateEngine.Cli.RestoreCataloger;
 
 namespace Microsoft.TemplateEngine.Cli.HelpAndUsage
 {
@@ -99,9 +100,17 @@ namespace Microsoft.TemplateEngine.Cli.HelpAndUsage
 
         private static CreationResultStatus DisplayHelpForAmbiguousTemplateGroup(TemplateListResolutionResult templateResolutionResult, IEngineEnvironmentSettings environmentSettings, INewCommandInput commandInput, IHostSpecificDataLoader hostDataLoader, ITelemetryLogger telemetryLogger, string defaultLanguage)
         {
-            if (!string.IsNullOrEmpty(commandInput.TemplateName)
-                && templateResolutionResult.GetBestTemplateMatchList(true).Count > 0
-                && templateResolutionResult.GetBestTemplateMatchList(true).All(x => x.MatchDisposition.Any(d => d.Location == MatchLocation.Language && d.Kind == MatchKind.Mismatch)))
+            //if (!string.IsNullOrEmpty(commandInput.TemplateName)
+            //    && templateResolutionResult.GetBestTemplateMatchList(true).Count > 0
+            //    && templateResolutionResult.GetBestTemplateMatchList(true).All(x => x.MatchDisposition.Any(d => d.Location == MatchLocation.Language && d.Kind == MatchKind.Mismatch)))
+            //{
+            //    string errorMessage = GetLanguageMismatchErrorMessage(commandInput);
+            //    Reporter.Error.WriteLine(errorMessage.Bold().Red());
+            //    Reporter.Error.WriteLine(string.Format(LocalizableStrings.RunHelpForInformationAboutAcceptedParameters, $"{commandInput.CommandName} {commandInput.TemplateName}").Bold().Red());
+            //    return CreationResultStatus.NotFound;
+            //}
+
+            if (templateResolutionResult.AreAllBestMatchesLanguageMismatches())
             {
                 string errorMessage = GetLanguageMismatchErrorMessage(commandInput);
                 Reporter.Error.WriteLine(errorMessage.Bold().Red());
@@ -160,7 +169,7 @@ namespace Microsoft.TemplateEngine.Cli.HelpAndUsage
         }
 
         // Returns true if any of the input templates has a valid parameter parse result.
-        private static bool AreAllParamsValidForAnyTemplateInList(IReadOnlyList<ITemplateMatchInfo> templateList)
+        public static bool AreAllParamsValidForAnyTemplateInList(IReadOnlyList<ITemplateMatchInfo> templateList)
         {
             bool anyValidTemplate = false;
 
@@ -176,9 +185,23 @@ namespace Microsoft.TemplateEngine.Cli.HelpAndUsage
             return anyValidTemplate;
         }
 
-        private static void DisplayHelpForAcceptedParameters(string commandName)
+        public static void DisplayHelpForAcceptedParameters(string commandName)
         {
             Reporter.Error.WriteLine(string.Format(LocalizableStrings.RunHelpForInformationAboutAcceptedParameters, commandName).Bold().Red());
+        }
+
+        public static bool TryCreateRestoreCatalog(IReadOnlyList<ITemplateInfo> templates, IEngineEnvironmentSettings environmentSettings, INewCommandInput commandInput)
+        {
+            CatalogCoordinator cataloger = new CatalogCoordinator(environmentSettings, templates);
+
+            if (!string.IsNullOrEmpty(commandInput.RestoreCatalogOutputFile))
+            {
+                return cataloger.TryWriteCatalogToFile(commandInput.RestoreCatalogOutputFile);
+            }
+            else
+            {
+                return cataloger.TryWriteCatalogToOutput();
+            }
         }
 
         // Displays the list of templates in a table, one row per template group.

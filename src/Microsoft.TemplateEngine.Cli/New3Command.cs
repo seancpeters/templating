@@ -13,6 +13,7 @@ using Microsoft.TemplateEngine.Abstractions;
 using Microsoft.TemplateEngine.Abstractions.Mount;
 using Microsoft.TemplateEngine.Cli.CommandParsing;
 using Microsoft.TemplateEngine.Cli.HelpAndUsage;
+using Microsoft.TemplateEngine.Cli.RestoreCataloger;
 using Microsoft.TemplateEngine.Edge;
 using Microsoft.TemplateEngine.Edge.Settings;
 using Microsoft.TemplateEngine.Edge.Template;
@@ -354,7 +355,6 @@ namespace Microsoft.TemplateEngine.Cli
             return CreationResultStatus.Success;
         }
 
-        // TODO: make sure help / usage works right in these cases.
         private CreationResultStatus EnterMaintenanceFlow()
         {
             if (!TemplateListResolver.ValidateRemainingParameters(_commandInput, out IReadOnlyList<string> invalidParams))
@@ -649,6 +649,11 @@ namespace Microsoft.TemplateEngine.Cli
                     new TemplateUpdating(EnvironmentSettings, Installer, _inputGetter).UpdateWithoutPrompting(_settingsLoader.InstallUnitDescriptorCache.Descriptors.Values.ToList());
                 }
 
+                if (_commandInput.IsRestoreCatalogSpecified)
+                {
+                    return EnterRestoreCatalogFlow();
+                }
+
                 if (string.IsNullOrWhiteSpace(TemplateName))
                 {
                     return EnterMaintenanceFlow();
@@ -661,6 +666,37 @@ namespace Microsoft.TemplateEngine.Cli
                 Reporter.Error.WriteLine(tae.Message.Bold().Red());
                 return CreationResultStatus.CreateFailed;
             }
+        }
+
+        private CreationResultStatus EnterRestoreCatalogFlow()
+        {
+            TemplateListResolutionResult templateResolutionResult = QueryForTemplateMatches();
+            IReadOnlyList<ITemplateMatchInfo> templatesToCatalog = CatalogerTemplateChooser.DetermineTemplatesToCatalog(templateResolutionResult);
+
+            if (templatesToCatalog.Count == 0)
+            {
+                return HelpForTemplateResolution.CoordinateHelpAndUsageDisplay(templateResolutionResult, EnvironmentSettings, _commandInput, _hostDataLoader, _telemetryLogger, _templateCreator, _defaultLanguage);
+            }
+
+            try
+            {
+                CatalogCoordinator cataloger = new CatalogCoordinator(EnvironmentSettings, templatesToCatalog.Select(x => x.Info).ToList(), _commandInput.InstallNuGetSourceList);
+                if (!string.IsNullOrEmpty(_commandInput.RestoreCatalogOutputFile))
+                {
+                    CatalogCsvWriter.WriteCatalogAsCsvFile(cataloger, _commandInput.RestoreCatalogOutputFile);
+                }
+                else
+                {
+                    CatalogCsvWriter.WriteCatalogAsCsv(cataloger);
+                }
+            }
+            catch (Exception ex)
+            {
+                Reporter.Error.WriteLine(ex.Message.Bold().Red());
+                return CreationResultStatus.CreateFailed;
+            }
+
+            return CreationResultStatus.Success;
         }
 
         private bool ConfigureLocale()

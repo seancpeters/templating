@@ -10,9 +10,9 @@ namespace Microsoft.TemplateEngine.Cli
 {
     public class TemplateListResolutionResult
     {
-        public TemplateListResolutionResult(string templateName, string userInputLanguage, IReadOnlyCollection<ITemplateMatchInfo> coreMatchedTemplates, IReadOnlyCollection<ITemplateMatchInfo> allTemplatesInContext)
+        public TemplateListResolutionResult(string inputTemplateName, string userInputLanguage, IReadOnlyCollection<ITemplateMatchInfo> coreMatchedTemplates, IReadOnlyCollection<ITemplateMatchInfo> allTemplatesInContext)
         {
-            _templateName = templateName;
+            InputTemplateName = inputTemplateName;
             _hasUserInputLanguage = !string.IsNullOrEmpty(userInputLanguage);
             _coreMatchedTemplates = coreMatchedTemplates;
             _allTemplatesInContext = allTemplatesInContext;
@@ -20,7 +20,8 @@ namespace Microsoft.TemplateEngine.Cli
             _usingContextMatches = false;
         }
 
-        private readonly string _templateName;
+        public string InputTemplateName { get; }
+
         private readonly bool _hasUserInputLanguage;
 
         private readonly IReadOnlyCollection<ITemplateMatchInfo> _coreMatchedTemplates;
@@ -219,7 +220,7 @@ namespace Microsoft.TemplateEngine.Cli
             {
                 return templateList;
             }
-            else if (!string.IsNullOrEmpty(_templateName) && TryGetAllInvokableTemplates(out templateList))
+            else if (!string.IsNullOrEmpty(InputTemplateName) && TryGetAllInvokableTemplates(out templateList))
             {
                 return templateList;
             }
@@ -255,6 +256,18 @@ namespace Microsoft.TemplateEngine.Cli
             {
                 return _usingContextMatches;
             }
+        }
+
+        public bool AreAllBestMatchesLanguageMismatches()
+        {
+            if (!string.IsNullOrEmpty(InputTemplateName)
+                && GetBestTemplateMatchList(true).Count > 0
+                && GetBestTemplateMatchList(true).All(x => x.MatchDisposition.Any(d => d.Location == MatchLocation.Language && d.Kind == MatchKind.Mismatch)))
+            {
+                return false;
+            }
+
+            return true;
         }
     }
 }

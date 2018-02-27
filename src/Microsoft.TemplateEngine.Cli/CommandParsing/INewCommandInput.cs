@@ -26,6 +26,10 @@ namespace Microsoft.TemplateEngine.Cli.CommandParsing
 
         IList<string> ToInstallList { get; }
 
+        bool IsRestoreCatalogSpecified { get; }
+
+        string RestoreCatalogOutputFile { get; }
+
         IList<string> InstallNuGetSourceList { get; }
 
         IList<string> ToUninstallList { get; }

@@ -52,8 +52,6 @@ namespace Microsoft.TemplateEngine.Edge.Template
 
         public async Task<TemplateCreationResult> InstantiateAsync(ITemplateInfo templateInfo, string name, string fallbackName, string outputPath, IReadOnlyDictionary<string, string> inputParameters, bool skipUpdateCheck, bool forceCreation, string baselineName)
         {
-            // SettingsLoader.LoadTemplate is where the loc info should be read!!!
-            // templateInfo knows enough to get at the loc, if any
             ITemplate template = _environmentSettings.SettingsLoader.LoadTemplate(templateInfo, baselineName);
 
             try

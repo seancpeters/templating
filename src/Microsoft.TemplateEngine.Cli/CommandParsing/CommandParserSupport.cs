@@ -202,6 +202,9 @@ namespace Microsoft.TemplateEngine.Cli.CommandParsing
 
                     Create.Option("--trace:authoring", string.Empty, Accept.NoArguments()),
                     Create.Option("--trace:install", string.Empty, Accept.NoArguments()),
+
+                    // TODO: get a better description & localize.
+                    Create.Option("--authoring:restore-catalog", "Catalog the restores for all installed templates. Optionally specify an output file, otherwise outputs to the console.", Accept.ZeroOrOneArgument()),
                 };
             }
         }

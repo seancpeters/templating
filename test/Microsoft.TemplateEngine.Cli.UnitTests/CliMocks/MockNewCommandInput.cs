@@ -52,6 +52,10 @@ namespace Microsoft.TemplateEngine.Cli.UnitTests.CliMocks
 
         public IList<string> ToUninstallList { get; set; }
 
+        public bool IsRestoreCatalogSpecified { get; }
+
+        public string RestoreCatalogOutputFile { get; }
+
         public bool IsForceFlagSpecified { get; set; }
 
         public bool IsHelpFlagSpecified { get; set; }
